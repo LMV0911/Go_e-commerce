@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Env files
+.env
+
+# SQLite database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

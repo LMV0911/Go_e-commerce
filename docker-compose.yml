@@ -1,18 +1,19 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: ecommerce_db
     restart: always
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: ecommerce
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   adminer:
     image: adminer:latest
@@ -22,6 +23,71 @@ services:
       - "8081:8080"
     depends_on:
       - db
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce_server
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      PORT: ${PORT:-8080}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    depends_on:
+      - db
+
+  ssh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce_ssh
+    restart: always
+    command: /app/bin/ssh
+    env_file:
+      - .env
+    environment:
+      SERVER_URL: ${SERVER_URL:-http://server:8080}
+    ports:
+      - "2222:2222"
+    depends_on:
+      - server
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce_admin
+    command: /app/bin/admin
+    env_file:
+      - .env
+    environment:
+      SERVER_URL: ${SERVER_URL:-http://server:8080}
+    depends_on:
+      - server
+    profiles: ["cli"]
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce_client
+    command: /app/bin/client
+    env_file:
+      - .env
+    environment:
+      SERVER_URL: ${SERVER_URL:-http://server:8080}
+    depends_on:
+      - server
+    profiles: ["cli"]
 
 volumes:
   pgdata:

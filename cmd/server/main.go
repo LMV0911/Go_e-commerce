@@ -1,19 +1,32 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/LMV0911/Go_e-commerce/internal/database"
+	"github.com/LMV0911/Go_e-commerce/internal/handler"
 )
 
 func main() {
-	fmt.Println("Démarrage du serveur e-commerce sur le port 8080...")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "OK")
-	})
+	log.Printf("🚀 Démarrage du serveur E-Commerce sur le port :%s...\n", port)
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatalf("Erreur du serveur: %v\n", err)
+	db, err := database.InitDB()
+	if err != nil {
+		log.Fatalf("❌ Erreur fatale de connexion BDD: %v\n", err)
+	}
+	defer db.Close()
+
+	router := handler.SetupRoutes(db)
+
+	log.Printf("✅ Serveur prêt et écoute sur http://0.0.0.0:%s\n", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatalf("❌ Erreur lors du fonctionnement du serveur: %v\n", err)
 	}
 }

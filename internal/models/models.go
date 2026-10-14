@@ -23,7 +23,41 @@ type User struct {
 	Role             string    `json:"role"`
 	IsConfirmed      bool      `json:"is_confirmed"`
 	ConfirmationCode string    `json:"confirmation_code,omitempty"`
+	ResetCode        string    `json:"reset_code,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+type RegisterRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type ConfirmRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordRequest struct {
+	Email       string `json:"email"`
+	Code        string `json:"code,omitempty"`
+	NewPassword string `json:"new_password"`
+}
+
+type AuthResponse struct {
+	Token            string `json:"token,omitempty"`
+	Message          string `json:"message,omitempty"`
+	ConfirmationCode string `json:"confirmation_code,omitempty"`
+	ResetCode        string `json:"reset_code,omitempty"`
+	User             *User  `json:"user,omitempty"`
 }
 
 type Product struct {

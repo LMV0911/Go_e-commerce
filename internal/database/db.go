@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -39,10 +40,17 @@ func InitDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("erreur d'ouverture de connexion DB: %w", err)
 	}
 
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("impossible de joindre la base de données PostgreSQL: %w", err)
 	}
 
-	log.Println("✅ Connexion sécurisée à la base de données PostgreSQL établie !")
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`)
+
+	log.Println("Connexion a la base de donnees PostgreSQL etablie")
 	return db, nil
 }

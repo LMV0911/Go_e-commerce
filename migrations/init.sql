@@ -5,8 +5,12 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) NOT NULL DEFAULT 'client',
     is_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
     confirmation_code VARCHAR(10),
+    reset_code VARCHAR(10),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(20) PRIMARY KEY,

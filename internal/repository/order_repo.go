@@ -37,6 +37,9 @@ func (r *OrderRepository) ListAll() ([]models.Order, error) {
 		}
 		orders = append(orders, o)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erreur lors de l'itération des commandes: %w", err)
+	}
 	return orders, nil
 }
 
@@ -71,6 +74,7 @@ func (r *OrderRepository) GetByID(id string) (*models.Order, error) {
 				o.Items = append(o.Items, item)
 			}
 		}
+		_ = itemRows.Err()
 	}
 
 	return &o, nil

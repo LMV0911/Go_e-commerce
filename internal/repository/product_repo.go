@@ -49,6 +49,9 @@ func (r *ProductRepository) List() ([]models.Product, error) {
 		}
 		products = append(products, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erreur lors de l'itération des produits: %w", err)
+	}
 	return products, nil
 }
 

@@ -16,3 +16,18 @@ func GenerateID(prefix string) string {
 	}
 	return prefix + "-" + string(b)
 }
+
+func GenerateRandomCode(length int) string {
+	if length <= 0 {
+		length = 6
+	}
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(b)
+}
+
+func GenerateConfirmationCode() string {
+	return GenerateRandomCode(6)
+}

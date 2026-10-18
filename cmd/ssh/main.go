@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/LMV0911/Go_e-commerce/internal/tui/admin"
+	"github.com/LMV0911/Go_e-commerce/internal/tui/client"
+	"strings"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
@@ -63,6 +65,10 @@ func main() {
 
 func teaHandler(serverURL string) func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	return func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+		if strings.EqualFold(s.User(), "client") {
+			m := client.NewClientModel(serverURL)
+			return m, []tea.ProgramOption{tea.WithAltScreen()}
+		}
 		m := admin.NewAdminModel(serverURL)
 		return m, []tea.ProgramOption{tea.WithAltScreen()}
 	}

@@ -50,15 +50,39 @@ L'application est divisée en plusieurs espaces :
    docker compose up -d
    ```
 
-4. **Lancer la CLI Admin (Bubbletea)**
+4. **Lancer la CLI Client (Bubbletea)**
    ```bash
-   docker compose run --rm admin /app/bin/admin
+   docker compose run --rm client /app/bin/client
+   # Ou en local :
+   go run cmd/client/main.go
    ```
 
-5. **Accéder à la CLI via SSH (Wish)**
+5. **Lancer la CLI Admin (Bubbletea)**
    ```bash
+   docker compose run --rm admin /app/bin/admin
+   # Ou en local :
+   go run cmd/admin/main.go
+   ```
+
+6. **Accéder à la CLI via SSH (Charm Wish)**
+   ```bash
+   # Interface Client :
+   ssh -p 2222 client@localhost
+
+   # Interface Administration :
    ssh -p 2222 admin@localhost
    ```
+
+## 🔐 Endpoints Authentification Client (`net/http` standard)
+
+| Méthode | Route | Description | Protection |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/auth/register` | Inscription client (hachage bcrypt + génération code unique aléatoire) | Publique |
+| `POST` | `/api/auth/confirm` | Confirmation de l'inscription via code unique | Publique |
+| `POST` | `/api/auth/login` | Connexion utilisateur (vérification statut confirmé + émission JWT) | Publique |
+| `POST` | `/api/auth/forgot-password` | Demande de code de réinitialisation sans être connecté | Publique |
+| `POST` | `/api/auth/reset-password` | Réinitialisation du mot de passe avec le code reçu | Publique |
+| `GET` | `/api/auth/me` | Profil utilisateur connecté & test session | **JWT Bearer Token** |
 
 ## 📡 Endpoints API Admin (`net/http`)
 

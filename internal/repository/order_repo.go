@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/LMV0911/Go_e-commerce/internal/models"
 	"github.com/LMV0911/Go_e-commerce/internal/utils"
@@ -41,6 +42,133 @@ func (r *OrderRepository) ListAll() ([]models.Order, error) {
 		return nil, fmt.Errorf("erreur lors de l'itération des commandes: %w", err)
 	}
 	return orders, nil
+}
+
+func (r *OrderRepository) ListByUserID(userID int) ([]models.Order, error) {
+	query := `
+		SELECT o.id, o.user_id, u.email, o.status, COALESCE(o.cancel_reason, ''), o.total_ttc, o.created_at
+		FROM orders o
+		JOIN users u ON o.user_id = u.id
+		WHERE o.user_id = $1
+		ORDER BY o.created_at DESC
+	`
+	rows, err := r.db.Query(query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("erreur de récupération des commandes: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []models.Order
+	for rows.Next() {
+		var o models.Order
+		if err := rows.Scan(&o.ID, &o.UserID, &o.UserEmail, &o.Status, &o.CancelReason, &o.TotalTTC, &o.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		itemsQuery := `
+			SELECT oi.id, oi.order_id, oi.product_id, p.name, oi.quantity, oi.price_unit_ttc
+			FROM order_items oi
+			JOIN products p ON oi.product_id = p.id
+			WHERE oi.order_id = $1
+		`
+		itemRows, err := r.db.Query(itemsQuery, o.ID)
+		if err == nil {
+			for itemRows.Next() {
+				var it models.OrderItem
+				if err := itemRows.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.ProductName, &it.Quantity, &it.PriceUnitTTC); err == nil {
+					o.Items = append(o.Items, it)
+				}
+			}
+			itemRows.Close()
+		}
+
+		orders = append(orders, o)
+	}
+	return orders, nil
+}
+
+func (r *OrderRepository) Checkout(userID int, cart *models.Cart, cardNumber, expDate, cvc, cardholderName string) (*models.Order, error) {
+	if cart == nil || len(cart.Items) == 0 {
+		return nil, fmt.Errorf("votre panier est vide")
+	}
+
+	cleanCard := strings.ReplaceAll(cardNumber, " ", "")
+	cleanCard = strings.ReplaceAll(cleanCard, "-", "")
+	if len(cleanCard) != 16 {
+		return nil, fmt.Errorf("numéro de carte invalide (16 chiffres requis)")
+	}
+	if len(cvc) != 3 {
+		return nil, fmt.Errorf("code CVC invalide (3 chiffres requis)")
+	}
+	if len(expDate) < 4 {
+		return nil, fmt.Errorf("date d'expiration invalide (format MM/YY attendu)")
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	for _, it := range cart.Items {
+		var stock int
+		err := tx.QueryRow(`SELECT stock FROM products WHERE id = $1 FOR UPDATE`, it.ProductID).Scan(&stock)
+		if err != nil {
+			return nil, fmt.Errorf("produit %s indisponible", it.ProductID)
+		}
+		if stock < it.Quantity {
+			return nil, fmt.Errorf("stock insuffisant pour %s (restant: %d)", it.Product.Name, stock)
+		}
+		_, err = tx.Exec(`UPDATE products SET stock = stock - $1 WHERE id = $2`, it.Quantity, it.ProductID)
+		if err != nil {
+			return nil, fmt.Errorf("erreur mise à jour stock: %w", err)
+		}
+	}
+
+	orderID := utils.GenerateID("CMD")
+	var order models.Order
+	order.ID = orderID
+	order.UserID = userID
+	order.Status = models.StatusPaid
+	order.TotalTTC = cart.TotalTTC
+
+	err = tx.QueryRow(
+		`INSERT INTO orders (id, user_id, status, total_ttc) VALUES ($1, $2, $3, $4) RETURNING created_at`,
+		orderID, userID, models.StatusPaid, cart.TotalTTC,
+	).Scan(&order.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("erreur création commande: %w", err)
+	}
+
+	for _, it := range cart.Items {
+		var oID int
+		err := tx.QueryRow(
+			`INSERT INTO order_items (order_id, product_id, quantity, price_unit_ttc) VALUES ($1, $2, $3, $4) RETURNING id`,
+			orderID, it.ProductID, it.Quantity, it.Product.PriceTTC,
+		).Scan(&oID)
+		if err != nil {
+			return nil, fmt.Errorf("erreur insertion article commande: %w", err)
+		}
+		order.Items = append(order.Items, models.OrderItem{
+			ID:           oID,
+			OrderID:      orderID,
+			ProductID:    it.ProductID,
+			ProductName:  it.Product.Name,
+			Quantity:     it.Quantity,
+			PriceUnitTTC: it.Product.PriceTTC,
+		})
+	}
+
+	_, err = tx.Exec(`DELETE FROM cart_items WHERE cart_id = $1`, cart.ID)
+	if err != nil {
+		return nil, fmt.Errorf("erreur vidage panier: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &order, nil
 }
 
 func (r *OrderRepository) GetByID(id string) (*models.Order, error) {

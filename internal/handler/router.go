@@ -15,15 +15,28 @@ func SetupRoutes(db *sql.DB) http.Handler {
 	productRepo := repository.NewProductRepository(db)
 	userRepo := repository.NewUserRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
+	cartRepo := repository.NewCartRepository(db)
 
 	adminHandler := NewAdminHandler(productRepo, userRepo, orderRepo)
 	authHandler := NewAuthHandler(userRepo)
+	clientHandler := NewClientHandler(productRepo, cartRepo, orderRepo)
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "OK")
 	})
+
+
+	mux.HandleFunc("GET /api/products", clientHandler.ListProducts)
+	mux.HandleFunc("GET /api/categories", clientHandler.ListCategories)
+	mux.HandleFunc("GET /api/cart", clientHandler.GetCart)
+	mux.HandleFunc("POST /api/cart/items", clientHandler.AddToCart)
+	mux.HandleFunc("PUT /api/cart/items", clientHandler.UpdateCartItem)
+	mux.HandleFunc("DELETE /api/cart/items", clientHandler.RemoveCartItem)
+	mux.HandleFunc("DELETE /api/cart", clientHandler.ClearCart)
+	mux.HandleFunc("POST /api/checkout", clientHandler.Checkout)
+	mux.HandleFunc("GET /api/orders", clientHandler.ListOrders)
 
 	mux.HandleFunc("POST /api/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/auth/confirm", authHandler.Confirm)

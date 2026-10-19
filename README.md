@@ -74,6 +74,9 @@ Copiez le fichier d'exemple pour initialiser la configuration locale :
 ```bash
 cp .env.example .env
 ```
+Editez le fichier `.env` pour renseigner imperativement les variables sensibles :
+* `POSTGRES_PASSWORD` : Definissez le mot de passe de la base de donnees (ex: `password`).
+* `JWT_SECRET` : Definissez la cle secrete de signature des tokens JWT (ex: `mon_secret_jwt_super_securise_123`).
 
 ### 3. Demarrer les conteneurs Docker
 ```bash

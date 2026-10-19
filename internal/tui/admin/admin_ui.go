@@ -4,17 +4,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/LMV0911/Go_e-commerce/internal/models"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type viewState int
 
 const (
-	viewMainMenu viewState = iota
+	viewLogin viewState = iota
+	viewMainMenu
 	viewMenuProducts
 	viewMenuUsers
 	viewMenuOrders
@@ -41,6 +44,10 @@ type AdminModel struct {
 	returnState  viewState
 	step         int
 	inputBuffer  string
+	token        string
+	user         *models.User
+	authEmail    string
+	authPassword string
 	formName     string
 	formCategory string
 	formPriceHT  string
@@ -62,15 +69,29 @@ type AdminModel struct {
 func NewAdminModel(serverURL string) AdminModel {
 	return AdminModel{
 		cursor:      0,
-		status:      "Connecté au serveur Admin : " + serverURL,
+		status:      "Veuillez vous identifier pour accéder au back-office",
 		serverURL:   serverURL,
-		state:       viewMainMenu,
+		state:       viewLogin,
 		returnState: viewMainMenu,
 	}
 }
 
 func (m AdminModel) Init() tea.Cmd {
 	return nil
+}
+
+func (m AdminModel) doRequest(method, urlStr string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, urlStr, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if m.token != "" {
+		req.Header.Set("Authorization", "Bearer "+m.token)
+	}
+	return http.DefaultClient.Do(req)
 }
 
 func (m AdminModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -89,6 +110,8 @@ func (m AdminModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.state {
+		case viewLogin:
+			return m.updateLogin(msg)
 		case viewCreateProduct:
 			return m.updateCreateProduct(msg)
 		case viewUpdateProduct:
@@ -124,8 +147,119 @@ func (m AdminModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m AdminModel) updateLogin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		if m.step == 1 {
+			m.step = 0
+			m.inputBuffer = m.authEmail
+			m.status = ""
+			return m, nil
+		}
+		return m, tea.Quit
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
+		return m, nil
+	case tea.KeyEnter:
+		val := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+
+		if m.step == 0 {
+			if val == "" {
+				m.status = "❌ L'adresse email est requise"
+				return m, nil
+			}
+			m.authEmail = val
+			m.step = 1
+			m.status = ""
+			return m, nil
+		}
+
+		if val == "" {
+			m.status = "❌ Le mot de passe est requis"
+			return m, nil
+		}
+		m.authPassword = val
+		return m.doLogin()
+	default:
+		s := msg.String()
+		if m.step == 0 && (s == "q" || s == "ctrl+c") && m.inputBuffer == "" {
+			return m, tea.Quit
+		}
+		if strings.HasSuffix(s, "@") {
+			m.inputBuffer += "@"
+		} else if strings.HasPrefix(s, "alt+") && len(s) > 4 {
+			m.inputBuffer += s[4:]
+		} else if strings.HasPrefix(s, "ctrl+alt+") && len(s) > 9 {
+			m.inputBuffer += s[9:]
+		} else if len(msg.Runes) > 0 {
+			m.inputBuffer += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.inputBuffer += " "
+		} else if len(s) == 1 {
+			m.inputBuffer += s
+		}
+	}
+	return m, nil
+}
+
+func (m AdminModel) doLogin() (tea.Model, tea.Cmd) {
+	payload := models.LoginRequest{
+		Email:    m.authEmail,
+		Password: m.authPassword,
+	}
+	bodyBytes, _ := json.Marshal(payload)
+
+	resp, err := http.Post(m.serverURL+"/api/auth/login", "application/json", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		m.status = "❌ Erreur de connexion au serveur: " + err.Error()
+		m.step = 0
+		return m, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		errMsg := errResp["error"]
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("Code HTTP %d", resp.StatusCode)
+		}
+		m.status = "❌ Échec connexion : " + errMsg
+		m.step = 1
+		return m, nil
+	}
+
+	var authResp models.AuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		m.status = "❌ Erreur décodage de la réponse"
+		m.step = 0
+		return m, nil
+	}
+
+	if authResp.User != nil && authResp.User.Role != models.RoleAdmin {
+		m.status = fmt.Sprintf("❌ Accès refusé : compte non administrateur (rôle : %s)", authResp.User.Role)
+		m.token = ""
+		m.user = nil
+		m.authPassword = ""
+		m.step = 0
+		return m, nil
+	}
+
+	m.token = authResp.Token
+	m.user = authResp.User
+	m.authPassword = ""
+	m.status = fmt.Sprintf("Connecté en tant que %s", authResp.User.Email)
+	m.state = viewMainMenu
+	m.cursor = 0
+	m.step = 0
+	return m, nil
+}
+
 func (m AdminModel) updateMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	menuLen := 4
+	menuLen := 5
 	switch msg.String() {
 	case "ctrl+c", "q", "x":
 		return m, tea.Quit
@@ -148,6 +282,16 @@ func (m AdminModel) updateMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case 2:
 			m.state = viewMenuOrders
 		case 3:
+			m.token = ""
+			m.user = nil
+			m.authEmail = ""
+			m.authPassword = ""
+			m.inputBuffer = ""
+			m.step = 0
+			m.status = "Déconnecté avec succès."
+			m.state = viewLogin
+			m.cursor = 0
+		case 4:
 			return m, tea.Quit
 		}
 	}
@@ -377,7 +521,7 @@ func (m AdminModel) submitCreateProduct() (tea.Model, tea.Cmd) {
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	resp, err := http.Post(m.serverURL+"/api/admin/products", "application/json", bytes.NewBuffer(bodyBytes))
+	resp, err := m.doRequest(http.MethodPost, m.serverURL+"/api/admin/products", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur de création du produit: " + err.Error()
 		m.state = viewMenuProducts
@@ -448,7 +592,7 @@ func (m AdminModel) updateUpdateProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "❌ L'ID du produit ne peut pas être vide"
 				return m, nil
 			}
-			resp, err := http.Get(m.serverURL + "/api/admin/products/" + val)
+			resp, err := m.doRequest(http.MethodGet, m.serverURL+"/api/admin/products/"+val, nil)
 			if err != nil {
 				m.status = "❌ Erreur réseau: " + err.Error()
 				return m, nil
@@ -531,14 +675,7 @@ func (m AdminModel) submitUpdateProduct() (tea.Model, tea.Cmd) {
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPut, m.serverURL+"/api/admin/products/"+m.formProdID, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		m.status = "❌ Erreur de requête: " + err.Error()
-		m.state = viewMenuProducts
-		return m, nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doRequest(http.MethodPut, m.serverURL+"/api/admin/products/"+m.formProdID, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur de mise à jour du produit: " + err.Error()
 		m.state = viewMenuProducts
@@ -597,14 +734,7 @@ func (m AdminModel) updateDeleteProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/admin/products/%s", m.serverURL, prodID), nil)
-		if err != nil {
-			m.status = "❌ Erreur requête: " + err.Error()
-			m.state = viewMenuProducts
-			return m, nil
-		}
-
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := m.doRequest(http.MethodDelete, fmt.Sprintf("%s/api/admin/products/%s", m.serverURL, prodID), nil)
 		if err != nil {
 			m.status = "❌ Erreur réseau: " + err.Error()
 			m.state = viewMenuProducts
@@ -691,15 +821,7 @@ func (m AdminModel) submitRenameCategory() (tea.Model, tea.Cmd) {
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest(http.MethodPut, m.serverURL+"/api/admin/categories/rename", bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		m.status = "❌ Erreur requête: " + err.Error()
-		m.state = viewMenuProducts
-		return m, nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doRequest(http.MethodPut, m.serverURL+"/api/admin/categories/rename", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuProducts
@@ -792,7 +914,7 @@ func (m AdminModel) submitCreateUser() (tea.Model, tea.Cmd) {
 		"role":     m.formRole,
 	}
 	bodyBytes, _ := json.Marshal(payload)
-	resp, err := http.Post(m.serverURL+"/api/admin/users", "application/json", bytes.NewBuffer(bodyBytes))
+	resp, err := m.doRequest(http.MethodPost, m.serverURL+"/api/admin/users", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuUsers
@@ -861,7 +983,7 @@ func (m AdminModel) updateUpdateUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = "❌ ID utilisateur invalide"
 				return m, nil
 			}
-			resp, err := http.Get(fmt.Sprintf("%s/api/admin/users/%d", m.serverURL, id))
+			resp, err := m.doRequest(http.MethodGet, fmt.Sprintf("%s/api/admin/users/%d", m.serverURL, id), nil)
 			if err != nil {
 				m.status = "❌ Erreur réseau: " + err.Error()
 				return m, nil
@@ -921,14 +1043,7 @@ func (m AdminModel) submitUpdateUser() (tea.Model, tea.Cmd) {
 		"is_confirmed": true,
 	}
 	bodyBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPut, m.serverURL+"/api/admin/users/"+m.formUserID, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		m.status = "❌ Erreur préparation requête: " + err.Error()
-		m.state = viewMenuUsers
-		return m, nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doRequest(http.MethodPut, m.serverURL+"/api/admin/users/"+m.formUserID, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuUsers
@@ -986,7 +1101,7 @@ func (m AdminModel) updateConfirmUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		resp, err := http.Post(fmt.Sprintf("%s/api/admin/users/%d/confirm", m.serverURL, id), "application/json", nil)
+		resp, err := m.doRequest(http.MethodPost, fmt.Sprintf("%s/api/admin/users/%d/confirm", m.serverURL, id), nil)
 		if err != nil {
 			m.status = "❌ Erreur réseau: " + err.Error()
 			m.state = viewMenuUsers
@@ -1046,14 +1161,7 @@ func (m AdminModel) updateDeleteUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/admin/users/%d", m.serverURL, id), nil)
-		if err != nil {
-			m.status = "❌ Erreur: " + err.Error()
-			m.state = viewMenuUsers
-			return m, nil
-		}
-
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := m.doRequest(http.MethodDelete, fmt.Sprintf("%s/api/admin/users/%d", m.serverURL, id), nil)
 		if err != nil {
 			m.status = "❌ Erreur réseau: " + err.Error()
 			m.state = viewMenuUsers
@@ -1122,7 +1230,7 @@ func (m AdminModel) updateOrderDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AdminModel) fetchOrderDetail(orderID string) (tea.Model, tea.Cmd) {
-	resp, err := http.Get(m.serverURL + "/api/admin/orders/" + orderID)
+	resp, err := m.doRequest(http.MethodGet, m.serverURL+"/api/admin/orders/"+orderID, nil)
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuOrders
@@ -1132,6 +1240,11 @@ func (m AdminModel) fetchOrderDetail(orderID string) (tea.Model, tea.Cmd) {
 
 	if resp.StatusCode == http.StatusNotFound {
 		m.status = "❌ Commande introuvable: " + orderID
+		m.state = viewMenuOrders
+		return m, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		m.status = fmt.Sprintf("❌ Erreur serveur (Code %d)", resp.StatusCode)
 		m.state = viewMenuOrders
 		return m, nil
 	}
@@ -1238,15 +1351,7 @@ func (m AdminModel) submitUpdateOrderStatus() (tea.Model, tea.Cmd) {
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/api/admin/orders/%s/status", m.serverURL, m.formOrderID), bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		m.status = "❌ Erreur requête: " + err.Error()
-		m.state = viewMenuOrders
-		return m, nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.doRequest(http.MethodPut, fmt.Sprintf("%s/api/admin/orders/%s/status", m.serverURL, m.formOrderID), bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuOrders
@@ -1354,7 +1459,7 @@ func (m AdminModel) submitCreateManualOrder() (tea.Model, tea.Cmd) {
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	resp, err := http.Post(m.serverURL+"/api/admin/orders/manual", "application/json", bytes.NewBuffer(bodyBytes))
+	resp, err := m.doRequest(http.MethodPost, m.serverURL+"/api/admin/orders/manual", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		m.status = "❌ Erreur réseau: " + err.Error()
 		m.state = viewMenuOrders
@@ -1407,12 +1512,23 @@ func (m *AdminModel) fetchProducts() {
 	m.status = "Chargement des produits..."
 	m.items = nil
 
-	resp, err := http.Get(m.serverURL + "/api/admin/products")
+	resp, err := m.doRequest(http.MethodGet, m.serverURL+"/api/admin/products", nil)
 	if err != nil {
 		m.status = "❌ Erreur connexion serveur: " + err.Error()
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if msg, ok := errResp["error"]; ok {
+			m.status = "❌ " + msg
+		} else {
+			m.status = fmt.Sprintf("❌ Erreur serveur (Code %d)", resp.StatusCode)
+		}
+		return
+	}
 
 	var products []struct {
 		ID       string  `json:"id"`
@@ -1436,12 +1552,23 @@ func (m *AdminModel) fetchUsers() {
 	m.status = "Chargement des utilisateurs..."
 	m.items = nil
 
-	resp, err := http.Get(m.serverURL + "/api/admin/users")
+	resp, err := m.doRequest(http.MethodGet, m.serverURL+"/api/admin/users", nil)
 	if err != nil {
 		m.status = "❌ Erreur connexion serveur: " + err.Error()
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if msg, ok := errResp["error"]; ok {
+			m.status = "❌ " + msg
+		} else {
+			m.status = fmt.Sprintf("❌ Erreur serveur (Code %d)", resp.StatusCode)
+		}
+		return
+	}
 
 	var users []struct {
 		ID          int    `json:"id"`
@@ -1468,12 +1595,23 @@ func (m *AdminModel) fetchOrders() {
 	m.status = "Chargement des commandes..."
 	m.items = nil
 
-	resp, err := http.Get(m.serverURL + "/api/admin/orders")
+	resp, err := m.doRequest(http.MethodGet, m.serverURL+"/api/admin/orders", nil)
 	if err != nil {
 		m.status = "❌ Erreur connexion serveur: " + err.Error()
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if msg, ok := errResp["error"]; ok {
+			m.status = "❌ " + msg
+		} else {
+			m.status = fmt.Sprintf("❌ Erreur serveur (Code %d)", resp.StatusCode)
+		}
+		return
+	}
 
 	var orders []struct {
 		ID        string  `json:"id"`
@@ -1499,8 +1637,28 @@ func (m AdminModel) View() string {
 	s.WriteString("       BACK-OFFICE ADMIN E-COMMERCE CLI     \n")
 	s.WriteString("===============================================\n\n")
 
+	if m.user != nil {
+		s.WriteString(fmt.Sprintf("👤 Connecté : %s (Rôle : %s)\n", m.user.Email, m.user.Role))
+	}
+
 	if m.status != "" && m.state != viewListResults {
 		s.WriteString("Statut : " + m.status + "\n\n")
+	}
+
+	if m.state == viewLogin {
+		s.WriteString("🔐 ESPACE ADMINISTRATION - CONNEXION REQUISE :\n\n")
+		switch m.step {
+		case 0:
+			s.WriteString("Étape 1/2 - Entrez votre EMAIL administrateur :\n")
+			s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
+		case 1:
+			s.WriteString(fmt.Sprintf("✓ Email : %s\n", m.authEmail))
+			s.WriteString("Étape 2/2 - Entrez votre MOT DE PASSE :\n")
+			masked := strings.Repeat("*", len(m.inputBuffer))
+			s.WriteString(fmt.Sprintf("\n> %s █\n\n", masked))
+		}
+		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] / [q] pour quitter.\n")
+		return s.String()
 	}
 
 	if m.state == viewListResults {
@@ -1697,7 +1855,8 @@ func (m AdminModel) View() string {
 			"1. Gestion des Produits",
 			"2. Gestion des Utilisateurs",
 			"3. Gestion des Commandes",
-			"4. Quitter",
+			"4. Déconnexion",
+			"5. Quitter",
 		}
 	case viewMenuProducts:
 		menuTitle = "GESTION DES PRODUITS"

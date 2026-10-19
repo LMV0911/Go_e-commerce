@@ -151,25 +151,25 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@localhost 
 | `GET` | `/api/orders` | Historique des commandes du client connecte |
 
 ### Espace Administration (`/api/admin/...`)
-| Methode | Route | Description |
-| :--- | :--- | :--- |
-| `GET` | `/health` | Healthcheck de supervision |
-| `GET` | `/api/admin/products` | Liste de tous les produits du catalogue |
-| `GET` | `/api/admin/products/{id}` | Detail d'un produit (`PDT-XXXXXX`) |
-| `POST` | `/api/admin/products` | Creation de produit (ID automatique, calcul TVA 20%) |
-| `PUT` | `/api/admin/products/{id}` | Modification des attributs d'un produit |
-| `DELETE` | `/api/admin/products/{id}` | Suppression d'un produit |
-| `PUT` | `/api/admin/categories/rename` | Renommage d'une categorie insensible aux accents (`unaccent`) |
-| `GET` | `/api/admin/users` | Liste des utilisateurs enregistres |
-| `GET` | `/api/admin/users/{id}` | Detail d'un compte utilisateur |
-| `POST` | `/api/admin/users` | Creation manuelle d'un compte utilisateur par l'admin |
-| `POST` | `/api/admin/users/{id}/confirm` | Validation / activation manuelle d'un compte |
-| `PUT` | `/api/admin/users/{id}` | Mise a jour des informations utilisateur |
-| `DELETE` | `/api/admin/users/{id}` | Suppression d'un compte utilisateur |
-| `GET` | `/api/admin/orders` | Liste globale des commandes avec jointure client |
-| `GET` | `/api/admin/orders/{id}` | Detail d'une commande avec liste des articles |
-| `PUT` | `/api/admin/orders/{id}/status` | Changement de statut (motif obligatoire et remise en stock si annule) |
-| `POST` | `/api/admin/orders/manual` | Creation d'une commande manuelle pour un compte client tiers |
+| Methode | Route | Description | Protection |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | Healthcheck de supervision | Publique |
+| `GET` | `/api/admin/products` | Liste de tous les produits du catalogue | **Bearer JWT (Admin)** |
+| `GET` | `/api/admin/products/{id}` | Detail d'un produit (`PDT-XXXXXX`) | **Bearer JWT (Admin)** |
+| `POST` | `/api/admin/products` | Creation de produit (ID automatique, calcul TVA 20%) | **Bearer JWT (Admin)** |
+| `PUT` | `/api/admin/products/{id}` | Modification des attributs d'un produit | **Bearer JWT (Admin)** |
+| `DELETE` | `/api/admin/products/{id}` | Suppression d'un produit | **Bearer JWT (Admin)** |
+| `PUT` | `/api/admin/categories/rename` | Renommage d'une categorie insensible aux accents (`unaccent`) | **Bearer JWT (Admin)** |
+| `GET` | `/api/admin/users` | Liste des utilisateurs enregistres | **Bearer JWT (Admin)** |
+| `GET` | `/api/admin/users/{id}` | Detail d'un compte utilisateur | **Bearer JWT (Admin)** |
+| `POST` | `/api/admin/users` | Creation manuelle d'un compte utilisateur par l'admin | **Bearer JWT (Admin)** |
+| `POST` | `/api/admin/users/{id}/confirm` | Validation / activation manuelle d'un compte | **Bearer JWT (Admin)** |
+| `PUT` | `/api/admin/users/{id}` | Mise a jour des informations utilisateur | **Bearer JWT (Admin)** |
+| `DELETE` | `/api/admin/users/{id}` | Suppression d'un compte utilisateur | **Bearer JWT (Admin)** |
+| `GET` | `/api/admin/orders` | Liste globale des commandes avec jointure client | **Bearer JWT (Admin)** |
+| `GET` | `/api/admin/orders/{id}` | Detail d'une commande avec liste des articles | **Bearer JWT (Admin)** |
+| `PUT` | `/api/admin/orders/{id}/status` | Changement de statut (motif obligatoire et remise en stock si annule) | **Bearer JWT (Admin)** |
+| `POST` | `/api/admin/orders/manual` | Creation d'une commande manuelle pour un compte client tiers | **Bearer JWT (Admin)** |
 
 ---
 

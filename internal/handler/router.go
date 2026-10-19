@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/LMV0911/Go_e-commerce/internal/middleware"
+	"github.com/LMV0911/Go_e-commerce/internal/models"
 	"github.com/LMV0911/Go_e-commerce/internal/repository"
 )
 
@@ -45,24 +46,24 @@ func SetupRoutes(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/auth/reset-password", authHandler.ResetPassword)
 	mux.HandleFunc("GET /api/auth/me", middleware.RequireAuth(authHandler.Me))
 
-	mux.HandleFunc("GET /api/admin/products", adminHandler.ListProducts)
-	mux.HandleFunc("GET /api/admin/products/{id}", adminHandler.GetProduct)
-	mux.HandleFunc("POST /api/admin/products", adminHandler.CreateProduct)
-	mux.HandleFunc("PUT /api/admin/products/{id}", adminHandler.UpdateProduct)
-	mux.HandleFunc("DELETE /api/admin/products/{id}", adminHandler.DeleteProduct)
-	mux.HandleFunc("PUT /api/admin/categories/rename", adminHandler.RenameCategory)
+	mux.HandleFunc("GET /api/admin/products", middleware.RequireRole(models.RoleAdmin, adminHandler.ListProducts))
+	mux.HandleFunc("GET /api/admin/products/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.GetProduct))
+	mux.HandleFunc("POST /api/admin/products", middleware.RequireRole(models.RoleAdmin, adminHandler.CreateProduct))
+	mux.HandleFunc("PUT /api/admin/products/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.UpdateProduct))
+	mux.HandleFunc("DELETE /api/admin/products/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.DeleteProduct))
+	mux.HandleFunc("PUT /api/admin/categories/rename", middleware.RequireRole(models.RoleAdmin, adminHandler.RenameCategory))
 
-	mux.HandleFunc("GET /api/admin/users", adminHandler.ListUsers)
-	mux.HandleFunc("GET /api/admin/users/{id}", adminHandler.GetUser)
-	mux.HandleFunc("POST /api/admin/users", adminHandler.CreateUser)
-	mux.HandleFunc("POST /api/admin/users/{id}/confirm", adminHandler.ConfirmUser)
-	mux.HandleFunc("PUT /api/admin/users/{id}", adminHandler.UpdateUser)
-	mux.HandleFunc("DELETE /api/admin/users/{id}", adminHandler.DeleteUser)
+	mux.HandleFunc("GET /api/admin/users", middleware.RequireRole(models.RoleAdmin, adminHandler.ListUsers))
+	mux.HandleFunc("GET /api/admin/users/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.GetUser))
+	mux.HandleFunc("POST /api/admin/users", middleware.RequireRole(models.RoleAdmin, adminHandler.CreateUser))
+	mux.HandleFunc("POST /api/admin/users/{id}/confirm", middleware.RequireRole(models.RoleAdmin, adminHandler.ConfirmUser))
+	mux.HandleFunc("PUT /api/admin/users/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.UpdateUser))
+	mux.HandleFunc("DELETE /api/admin/users/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.DeleteUser))
 
-	mux.HandleFunc("GET /api/admin/orders", adminHandler.ListOrders)
-	mux.HandleFunc("GET /api/admin/orders/{id}", adminHandler.GetOrder)
-	mux.HandleFunc("PUT /api/admin/orders/{id}/status", adminHandler.UpdateOrderStatus)
-	mux.HandleFunc("POST /api/admin/orders/manual", adminHandler.CreateManualOrder)
+	mux.HandleFunc("GET /api/admin/orders", middleware.RequireRole(models.RoleAdmin, adminHandler.ListOrders))
+	mux.HandleFunc("GET /api/admin/orders/{id}", middleware.RequireRole(models.RoleAdmin, adminHandler.GetOrder))
+	mux.HandleFunc("PUT /api/admin/orders/{id}/status", middleware.RequireRole(models.RoleAdmin, adminHandler.UpdateOrderStatus))
+	mux.HandleFunc("POST /api/admin/orders/manual", middleware.RequireRole(models.RoleAdmin, adminHandler.CreateManualOrder))
 
 	return middleware.AuthMiddleware(mux)
 }

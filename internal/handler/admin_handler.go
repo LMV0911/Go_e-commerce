@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/LMV0911/Go_e-commerce/internal/auth"
 	"github.com/LMV0911/Go_e-commerce/internal/models"
 	"github.com/LMV0911/Go_e-commerce/internal/repository"
 )
@@ -123,6 +125,42 @@ func (h *AdminHandler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "Produit supprimé avec succès"})
 }
 
+func (h *AdminHandler) RenameCategory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	defer r.Body.Close()
+
+	var req struct {
+		OldCategory string `json:"old_category"`
+		NewCategory string `json:"new_category"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Format JSON invalide"})
+		return
+	}
+
+	oldCat := strings.TrimSpace(req.OldCategory)
+	newCat := strings.TrimSpace(req.NewCategory)
+	if oldCat == "" || newCat == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "old_category et new_category sont requis"})
+		return
+	}
+
+	rowsAffected, err := h.productRepo.RenameCategory(oldCat, newCat)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"message":       fmt.Sprintf("Catégorie renommée avec succès sur %d produit(s)", rowsAffected),
+		"rows_affected": rowsAffected,
+	})
+}
+
+
 func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	users, err := h.userRepo.List()
@@ -222,6 +260,55 @@ func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"message": "Utilisateur supprimé avec succès"})
+}
+
+func (h *AdminHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	defer r.Body.Close()
+
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Format JSON invalide"})
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Email et mot de passe requis"})
+		return
+	}
+
+	if req.Role == "" {
+		req.Role = models.RoleClient
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Erreur lors du hachage du mot de passe"})
+		return
+	}
+
+	u := models.User{
+		Email:        req.Email,
+		PasswordHash: hash,
+		Role:         req.Role,
+		IsConfirmed:  true,
+	}
+
+	if err := h.userRepo.Create(&u); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(u)
 }
 
 func (h *AdminHandler) ListOrders(w http.ResponseWriter, r *http.Request) {

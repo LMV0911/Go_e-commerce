@@ -20,11 +20,14 @@ const (
 	viewMenuOrders
 	viewListResults
 	viewCreateProduct
+	viewUpdateProduct
 	viewDeleteProduct
 	viewRenameCategory
 	viewCreateUser
+	viewUpdateUser
 	viewConfirmUser
 	viewDeleteUser
+	viewOrderDetail
 	viewUpdateOrderStatus
 	viewCreateManualOrder
 )
@@ -88,16 +91,22 @@ func (m AdminModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case viewCreateProduct:
 			return m.updateCreateProduct(msg)
+		case viewUpdateProduct:
+			return m.updateUpdateProduct(msg)
 		case viewDeleteProduct:
 			return m.updateDeleteProduct(msg)
 		case viewRenameCategory:
 			return m.updateRenameCategory(msg)
 		case viewCreateUser:
 			return m.updateCreateUser(msg)
+		case viewUpdateUser:
+			return m.updateUpdateUser(msg)
 		case viewConfirmUser:
 			return m.updateConfirmUser(msg)
 		case viewDeleteUser:
 			return m.updateDeleteUser(msg)
+		case viewOrderDetail:
+			return m.updateOrderDetail(msg)
 		case viewUpdateOrderStatus:
 			return m.updateOrderStatus(msg)
 		case viewCreateManualOrder:
@@ -146,7 +155,7 @@ func (m AdminModel) updateMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AdminModel) updateMenuProducts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	menuLen := 5
+	menuLen := 6
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -180,12 +189,19 @@ func (m AdminModel) updateMenuProducts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.formPriceHT = ""
 			m.formStock = ""
 		case 2:
-			m.state = viewDeleteProduct
+			m.state = viewUpdateProduct
+			m.formProdID = ""
+			m.formName = ""
+			m.formCategory = ""
+			m.formPriceHT = ""
+			m.formStock = ""
 		case 3:
+			m.state = viewDeleteProduct
+		case 4:
 			m.state = viewRenameCategory
 			m.formOldCat = ""
 			m.formNewCat = ""
-		case 4:
+		case 5:
 			m.state = viewMainMenu
 		}
 	}
@@ -193,7 +209,7 @@ func (m AdminModel) updateMenuProducts(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AdminModel) updateMenuUsers(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	menuLen := 5
+	menuLen := 6
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -226,10 +242,15 @@ func (m AdminModel) updateMenuUsers(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.formPassword = ""
 			m.formRole = ""
 		case 2:
-			m.state = viewConfirmUser
+			m.state = viewUpdateUser
+			m.formUserID = ""
+			m.formEmail = ""
+			m.formRole = ""
 		case 3:
-			m.state = viewDeleteUser
+			m.state = viewConfirmUser
 		case 4:
+			m.state = viewDeleteUser
+		case 5:
 			m.state = viewMainMenu
 			m.cursor = 1
 		}
@@ -238,7 +259,7 @@ func (m AdminModel) updateMenuUsers(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AdminModel) updateMenuOrders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	menuLen := 4
+	menuLen := 5
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -266,16 +287,19 @@ func (m AdminModel) updateMenuOrders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.fetchOrders()
 			m.state = viewListResults
 		case 1:
+			m.state = viewOrderDetail
+			m.formOrderID = ""
+		case 2:
 			m.state = viewUpdateOrderStatus
 			m.formOrderID = ""
 			m.formStatus = ""
 			m.formReason = ""
-		case 2:
+		case 3:
 			m.state = viewCreateManualOrder
 			m.formUserID = ""
 			m.formProdID = ""
 			m.formQuantity = ""
-		case 3:
+		case 4:
 			m.state = viewMainMenu
 			m.cursor = 2
 		}
@@ -292,10 +316,8 @@ func (m AdminModel) updateCreateProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		val := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -364,19 +386,196 @@ func (m AdminModel) submitCreateProduct() (tea.Model, tea.Cmd) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		m.status = fmt.Sprintf("❌ Erreur serveur lors de la création (code %d)", resp.StatusCode)
-		m.state = viewMenuProducts
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		m.resultsTitle = "❌ ÉCHEC DE LA CRÉATION DU PRODUIT"
+		m.status = "Erreur"
+		m.items = []string{
+			fmt.Sprintf("Nom       : %s", m.formName),
+			fmt.Sprintf("Catégorie : %s", m.formCategory),
+			"",
+			"Raison de l'échec :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuProducts
+		m.state = viewListResults
 		return m, nil
 	}
 
 	var created struct {
-		ID string `json:"id"`
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		PriceHT  float64 `json:"price_ht"`
+		PriceTTC float64 `json:"price_ttc"`
+		Stock    int     `json:"stock"`
 	}
 	json.NewDecoder(resp.Body).Decode(&created)
 
-	m.status = fmt.Sprintf("✅ Produit [%s] \"%s\" créé avec succès !", created.ID, m.formName)
-	m.state = viewMenuProducts
+	m.resultsTitle = "✅ PRODUIT CRÉÉ AVEC SUCCÈS"
+	m.status = created.ID
+	m.items = []string{
+		fmt.Sprintf("Identifiant : %s", created.ID),
+		fmt.Sprintf("Nom         : %s", m.formName),
+		fmt.Sprintf("Catégorie   : %s", m.formCategory),
+		fmt.Sprintf("Prix HT     : %s € (Prix TTC: %.2f €)", m.formPriceHT, created.PriceTTC),
+		fmt.Sprintf("Stock       : %s", m.formStock),
+	}
+	m.returnState = viewMenuProducts
+	m.state = viewListResults
 	return m, nil
+}
+
+func (m AdminModel) updateUpdateProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.state = viewMenuProducts
+		m.inputBuffer = ""
+		m.step = 0
+		return m, nil
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
+	case tea.KeyEnter:
+		val := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+
+		switch m.step {
+		case 0:
+			if val == "" {
+				m.status = "❌ L'ID du produit ne peut pas être vide"
+				return m, nil
+			}
+			resp, err := http.Get(m.serverURL + "/api/admin/products/" + val)
+			if err != nil {
+				m.status = "❌ Erreur réseau: " + err.Error()
+				return m, nil
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusNotFound {
+				m.status = "❌ Produit introuvable: " + val
+				return m, nil
+			}
+			var p struct {
+				ID       string  `json:"id"`
+				Name     string  `json:"name"`
+				Category string  `json:"category"`
+				PriceHT  float64 `json:"price_ht"`
+				Stock    int     `json:"stock"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+				m.status = "❌ Erreur décodage produit"
+				return m, nil
+			}
+			m.formProdID = p.ID
+			m.formName = p.Name
+			m.formCategory = p.Category
+			m.formPriceHT = fmt.Sprintf("%.2f", p.PriceHT)
+			m.formStock = fmt.Sprintf("%d", p.Stock)
+			m.status = fmt.Sprintf("Produit [%s] chargé. [Entrée] pour conserver chaque valeur.", p.ID)
+			m.step = 1
+		case 1:
+			if val != "" {
+				m.formName = val
+			}
+			m.step = 2
+		case 2:
+			if val != "" {
+				m.formCategory = val
+			}
+			m.step = 3
+		case 3:
+			if val != "" {
+				p, err := strconv.ParseFloat(val, 64)
+				if err != nil || p <= 0 {
+					m.status = "❌ Le prix HT doit être un nombre positif (ex: 49.99)"
+					return m, nil
+				}
+				m.formPriceHT = val
+			}
+			m.step = 4
+		case 4:
+			if val != "" {
+				st, err := strconv.Atoi(val)
+				if err != nil || st < 0 {
+					m.status = "❌ Le stock doit être un entier positif (ex: 10)"
+					return m, nil
+				}
+				m.formStock = val
+			}
+			return m.submitUpdateProduct()
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.inputBuffer += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.inputBuffer += " "
+		}
+	}
+	return m, nil
+}
+
+func (m AdminModel) submitUpdateProduct() (tea.Model, tea.Cmd) {
+	priceHT, _ := strconv.ParseFloat(m.formPriceHT, 64)
+	stock, _ := strconv.Atoi(m.formStock)
+
+	payload := map[string]interface{}{
+		"name":        m.formName,
+		"category":    m.formCategory,
+		"price_ht":    priceHT,
+		"price_ttc":   priceHT * 1.20,
+		"stock":       stock,
+		"description": "Mis à jour via CLI Admin",
+	}
+
+	bodyBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPut, m.serverURL+"/api/admin/products/"+m.formProdID, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		m.status = "❌ Erreur de requête: " + err.Error()
+		m.state = viewMenuProducts
+		return m, nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		m.status = "❌ Erreur de mise à jour du produit: " + err.Error()
+		m.state = viewMenuProducts
+		return m, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		m.resultsTitle = "❌ ÉCHEC DE LA MODIFICATION"
+		m.status = "Erreur"
+		m.items = []string{
+			fmt.Sprintf("Produit ID : %s", m.formProdID),
+			"",
+			"Raison de l'échec :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuProducts
+		m.state = viewListResults
+		return m, nil
+	} else {
+		m.resultsTitle = "✅ PRODUIT MIS À JOUR AVEC SUCCÈS"
+		m.status = "Enregistré"
+		m.items = []string{
+			fmt.Sprintf("Produit ID : %s", m.formProdID),
+			fmt.Sprintf("Nom        : %s", m.formName),
+			fmt.Sprintf("Catégorie  : %s", m.formCategory),
+			fmt.Sprintf("Prix HT    : %s € (Prix TTC: %.2f €)", m.formPriceHT, priceHT*1.20),
+			fmt.Sprintf("Stock      : %d", stock),
+		}
+		m.returnState = viewMenuProducts
+		m.state = viewListResults
+		return m, nil
+	}
 }
 
 func (m AdminModel) updateDeleteProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -388,10 +587,8 @@ func (m AdminModel) updateDeleteProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		prodID := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -416,12 +613,26 @@ func (m AdminModel) updateDeleteProduct(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			m.status = fmt.Sprintf("❌ Impossible de supprimer le produit %s (inexistant)", prodID)
+			m.resultsTitle = "❌ ÉCHEC DE LA SUPPRESSION"
+			m.status = "Erreur"
+			m.items = []string{
+				fmt.Sprintf("Produit ID : %s", prodID),
+				"",
+				"Impossible de supprimer le produit (identifiant inexistant ou erreur serveur).",
+			}
+			m.returnState = viewMenuProducts
+			m.state = viewListResults
+			return m, nil
 		} else {
-			m.status = fmt.Sprintf("✅ Produit %s supprimé avec succès !", prodID)
+			m.resultsTitle = "✅ PRODUIT SUPPRIMÉ AVEC SUCCÈS"
+			m.status = prodID
+			m.items = []string{
+				fmt.Sprintf("Le produit %s a été supprimé définitivement du catalogue.", prodID),
+			}
+			m.returnState = viewMenuProducts
+			m.state = viewListResults
+			return m, nil
 		}
-		m.state = viewMenuProducts
-		return m, nil
 	default:
 		if msg.Type == tea.KeyRunes {
 			m.inputBuffer += string(msg.Runes)
@@ -441,10 +652,8 @@ func (m AdminModel) updateRenameCategory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		val := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -499,16 +708,33 @@ func (m AdminModel) submitRenameCategory() (tea.Model, tea.Cmd) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		m.status = "❌ Erreur lors du renommage de la catégorie"
+		m.resultsTitle = "❌ ÉCHEC DU RENOMMAGE"
+		m.status = "Erreur"
+		m.items = []string{
+			fmt.Sprintf("Ancienne catégorie : %s", m.formOldCat),
+			fmt.Sprintf("Nouvelle catégorie : %s", m.formNewCat),
+			"",
+			"Erreur lors du renommage en base de données.",
+		}
+		m.returnState = viewMenuProducts
+		m.state = viewListResults
+		return m, nil
 	} else {
 		var res struct {
 			RowsAffected int64 `json:"rows_affected"`
 		}
 		json.NewDecoder(resp.Body).Decode(&res)
-		m.status = fmt.Sprintf("✅ Catégorie \"%s\" renommée en \"%s\" sur %d produit(s) !", m.formOldCat, m.formNewCat, res.RowsAffected)
+		m.resultsTitle = "✅ CATÉGORIE RENOMMÉE AVEC SUCCÈS"
+		m.status = fmt.Sprintf("%d produit(s) modifié(s)", res.RowsAffected)
+		m.items = []string{
+			fmt.Sprintf("Ancienne catégorie : %s", m.formOldCat),
+			fmt.Sprintf("Nouvelle catégorie : %s", m.formNewCat),
+			fmt.Sprintf("Nombre de produits mis à jour : %d", res.RowsAffected),
+		}
+		m.returnState = viewMenuProducts
+		m.state = viewListResults
+		return m, nil
 	}
-	m.state = viewMenuProducts
-	return m, nil
 }
 
 func (m AdminModel) updateCreateUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -520,10 +746,8 @@ func (m AdminModel) updateCreateUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		val := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -577,12 +801,169 @@ func (m AdminModel) submitCreateUser() (tea.Model, tea.Cmd) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		m.status = "❌ Erreur lors de la création de l'utilisateur"
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		m.resultsTitle = "❌ ÉCHEC DE LA CRÉATION UTILISATEUR"
+		m.status = "Erreur"
+		m.items = []string{
+			fmt.Sprintf("Email : %s", m.formEmail),
+			"",
+			"Raison de l'échec :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuUsers
+		m.state = viewListResults
+		return m, nil
 	} else {
-		m.status = fmt.Sprintf("✅ Utilisateur %s créé avec succès (rôle: %s) !", m.formEmail, m.formRole)
+		var u struct {
+			ID int `json:"id"`
+		}
+		json.NewDecoder(resp.Body).Decode(&u)
+		m.resultsTitle = "✅ UTILISATEUR CRÉÉ AVEC SUCCÈS"
+		m.status = fmt.Sprintf("ID #%d", u.ID)
+		m.items = []string{
+			fmt.Sprintf("Identifiant : #%d", u.ID),
+			fmt.Sprintf("Email       : %s", m.formEmail),
+			fmt.Sprintf("Rôle        : %s", m.formRole),
+			"Statut      : Confirmé par défaut",
+		}
+		m.returnState = viewMenuUsers
+		m.state = viewListResults
+		return m, nil
 	}
-	m.state = viewMenuUsers
+}
+
+func (m AdminModel) updateUpdateUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.state = viewMenuUsers
+		m.inputBuffer = ""
+		m.step = 0
+		return m, nil
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
+	case tea.KeyEnter:
+		val := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+
+		switch m.step {
+		case 0:
+			if val == "" {
+				m.status = "❌ L'ID de l'utilisateur ne peut pas être vide"
+				return m, nil
+			}
+			id, err := strconv.Atoi(val)
+			if err != nil || id <= 0 {
+				m.status = "❌ ID utilisateur invalide"
+				return m, nil
+			}
+			resp, err := http.Get(fmt.Sprintf("%s/api/admin/users/%d", m.serverURL, id))
+			if err != nil {
+				m.status = "❌ Erreur réseau: " + err.Error()
+				return m, nil
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusNotFound {
+				m.status = fmt.Sprintf("❌ Utilisateur #%d introuvable", id)
+				return m, nil
+			}
+			var u struct {
+				ID    int    `json:"id"`
+				Email string `json:"email"`
+				Role  string `json:"role"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+				m.status = "❌ Erreur décodage utilisateur"
+				return m, nil
+			}
+			m.formUserID = val
+			m.formEmail = u.Email
+			m.formRole = u.Role
+			m.status = fmt.Sprintf("Utilisateur #%d chargé. [Entrée] pour conserver chaque valeur.", id)
+			m.step = 1
+		case 1:
+			if val != "" {
+				if !strings.Contains(val, "@") {
+					m.status = "❌ Email valide requis"
+					return m, nil
+				}
+				m.formEmail = val
+			}
+			m.step = 2
+		case 2:
+			if val != "" {
+				role := "client"
+				if val == "admin" {
+					role = "admin"
+				}
+				m.formRole = role
+			}
+			return m.submitUpdateUser()
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.inputBuffer += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.inputBuffer += " "
+		}
+	}
 	return m, nil
+}
+
+func (m AdminModel) submitUpdateUser() (tea.Model, tea.Cmd) {
+	payload := map[string]interface{}{
+		"email":        m.formEmail,
+		"role":         m.formRole,
+		"is_confirmed": true,
+	}
+	bodyBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPut, m.serverURL+"/api/admin/users/"+m.formUserID, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		m.status = "❌ Erreur préparation requête: " + err.Error()
+		m.state = viewMenuUsers
+		return m, nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		m.status = "❌ Erreur réseau: " + err.Error()
+		m.state = viewMenuUsers
+		return m, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		m.resultsTitle = "❌ ÉCHEC DE LA MODIFICATION UTILISATEUR"
+		m.status = "Erreur"
+		m.items = []string{
+			fmt.Sprintf("Utilisateur ID : %s", m.formUserID),
+			"",
+			"Raison de l'échec :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuUsers
+		m.state = viewListResults
+		return m, nil
+	} else {
+		m.resultsTitle = "✅ UTILISATEUR MIS À JOUR AVEC SUCCÈS"
+		m.status = fmt.Sprintf("ID #%s", m.formUserID)
+		m.items = []string{
+			fmt.Sprintf("Identifiant : #%s", m.formUserID),
+			fmt.Sprintf("Nouvel email: %s", m.formEmail),
+			fmt.Sprintf("Nouveau rôle: %s", m.formRole),
+		}
+		m.returnState = viewMenuUsers
+		m.state = viewListResults
+		return m, nil
+	}
 }
 
 func (m AdminModel) updateConfirmUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -594,10 +975,8 @@ func (m AdminModel) updateConfirmUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		idStr := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -616,12 +995,27 @@ func (m AdminModel) updateConfirmUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			m.status = fmt.Sprintf("❌ Impossible de confirmer l'utilisateur #%d", id)
+			m.resultsTitle = "❌ ÉCHEC DE LA CONFIRMATION"
+			m.status = "Erreur"
+			m.items = []string{
+				fmt.Sprintf("Utilisateur ID : #%d", id),
+				"",
+				"Impossible de confirmer le compte (ID introuvable ou erreur serveur).",
+			}
+			m.returnState = viewMenuUsers
+			m.state = viewListResults
+			return m, nil
 		} else {
-			m.status = fmt.Sprintf("✅ Utilisateur #%d confirmé manuellement avec succès !", id)
+			m.resultsTitle = "✅ UTILISATEUR CONFIRMÉ AVEC SUCCÈS"
+			m.status = fmt.Sprintf("ID #%d", id)
+			m.items = []string{
+				fmt.Sprintf("Le compte utilisateur #%d a été validé manuellement.", id),
+				"L'utilisateur peut maintenant se connecter à l'application.",
+			}
+			m.returnState = viewMenuUsers
+			m.state = viewListResults
+			return m, nil
 		}
-		m.state = viewMenuUsers
-		return m, nil
 	default:
 		if msg.Type == tea.KeyRunes {
 			m.inputBuffer += string(msg.Runes)
@@ -641,10 +1035,8 @@ func (m AdminModel) updateDeleteUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		idStr := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -670,12 +1062,26 @@ func (m AdminModel) updateDeleteUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			m.status = fmt.Sprintf("❌ Impossible de supprimer l'utilisateur #%d", id)
+			m.resultsTitle = "❌ ÉCHEC DE LA SUPPRESSION"
+			m.status = "Erreur"
+			m.items = []string{
+				fmt.Sprintf("Utilisateur ID : #%d", id),
+				"",
+				"Impossible de supprimer l'utilisateur (ID introuvable ou erreur serveur).",
+			}
+			m.returnState = viewMenuUsers
+			m.state = viewListResults
+			return m, nil
 		} else {
-			m.status = fmt.Sprintf("✅ Utilisateur #%d supprimé avec succès !", id)
+			m.resultsTitle = "✅ UTILISATEUR SUPPRIMÉ AVEC SUCCÈS"
+			m.status = fmt.Sprintf("ID #%d", id)
+			m.items = []string{
+				fmt.Sprintf("Le compte utilisateur #%d a été supprimé définitivement.", id),
+			}
+			m.returnState = viewMenuUsers
+			m.state = viewListResults
+			return m, nil
 		}
-		m.state = viewMenuUsers
-		return m, nil
 	default:
 		if msg.Type == tea.KeyRunes {
 			m.inputBuffer += string(msg.Runes)
@@ -683,6 +1089,93 @@ func (m AdminModel) updateDeleteUser(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputBuffer += " "
 		}
 	}
+	return m, nil
+}
+
+func (m AdminModel) updateOrderDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.state = viewMenuOrders
+		m.inputBuffer = ""
+		m.step = 0
+		return m, nil
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
+	case tea.KeyEnter:
+		orderID := strings.TrimSpace(m.inputBuffer)
+		m.inputBuffer = ""
+		if orderID == "" {
+			m.status = "❌ ID de commande requis"
+			return m, nil
+		}
+		return m.fetchOrderDetail(orderID)
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.inputBuffer += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.inputBuffer += " "
+		}
+	}
+	return m, nil
+}
+
+func (m AdminModel) fetchOrderDetail(orderID string) (tea.Model, tea.Cmd) {
+	resp, err := http.Get(m.serverURL + "/api/admin/orders/" + orderID)
+	if err != nil {
+		m.status = "❌ Erreur réseau: " + err.Error()
+		m.state = viewMenuOrders
+		return m, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		m.status = "❌ Commande introuvable: " + orderID
+		m.state = viewMenuOrders
+		return m, nil
+	}
+
+	var order struct {
+		ID           string  `json:"id"`
+		UserID       int     `json:"user_id"`
+		UserEmail    string  `json:"user_email"`
+		Status       string  `json:"status"`
+		CancelReason string  `json:"cancel_reason"`
+		TotalTTC     float64 `json:"total_ttc"`
+		Items        []struct {
+			ProductID    string  `json:"product_id"`
+			ProductName  string  `json:"product_name"`
+			Quantity     int     `json:"quantity"`
+			PriceUnitTTC float64 `json:"price_unit_ttc"`
+		} `json:"items"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&order); err != nil {
+		m.status = "❌ Erreur décodage commande"
+		m.state = viewMenuOrders
+		return m, nil
+	}
+
+	m.resultsTitle = fmt.Sprintf("DÉTAIL COMMANDE %s", order.ID)
+	m.items = nil
+	m.items = append(m.items, fmt.Sprintf("Client : %s (ID: %d)", order.UserEmail, order.UserID))
+	m.items = append(m.items, fmt.Sprintf("Statut : %s", order.Status))
+	if order.CancelReason != "" {
+		m.items = append(m.items, fmt.Sprintf("Motif d'annulation : %s", order.CancelReason))
+	}
+	m.items = append(m.items, "--- Articles commandés ---")
+	if len(order.Items) == 0 {
+		m.items = append(m.items, "  (Aucun article enregistré)")
+	} else {
+		for _, it := range order.Items {
+			m.items = append(m.items, fmt.Sprintf("  • %s (ID: %s) x%d à %.2f€ TTC = %.2f€ TTC", it.ProductName, it.ProductID, it.Quantity, it.PriceUnitTTC, float64(it.Quantity)*it.PriceUnitTTC))
+		}
+	}
+	m.items = append(m.items, fmt.Sprintf("TOTAL : %.2f€ TTC", order.TotalTTC))
+	m.returnState = viewMenuOrders
+	m.state = viewListResults
+	m.status = "✅ Détails de la commande chargés"
 	return m, nil
 }
 
@@ -695,10 +1188,8 @@ func (m AdminModel) updateOrderStatus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		val := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -767,12 +1258,31 @@ func (m AdminModel) submitUpdateOrderStatus() (tea.Model, tea.Cmd) {
 			Error string `json:"error"`
 		}
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		m.status = fmt.Sprintf("❌ Erreur: %s", errResp.Error)
+		m.resultsTitle = "❌ ÉCHEC DU CHANGEMENT DE STATUT"
+		m.status = "Refusé par le serveur"
+		m.items = []string{
+			fmt.Sprintf("Commande ID : %s", m.formOrderID),
+			"",
+			"Raison du refus :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuOrders
+		m.state = viewListResults
+		return m, nil
 	} else {
-		m.status = fmt.Sprintf("✅ Statut de la commande %s mis à jour vers \"%s\" !", m.formOrderID, m.formStatus)
+		m.resultsTitle = "✅ STATUT MIS À JOUR AVEC SUCCÈS"
+		m.status = m.formStatus
+		m.items = []string{
+			fmt.Sprintf("Commande ID : %s", m.formOrderID),
+			fmt.Sprintf("Nouveau statut : %s", m.formStatus),
+		}
+		if m.formReason != "" {
+			m.items = append(m.items, fmt.Sprintf("Motif : %s", m.formReason))
+		}
+		m.returnState = viewMenuOrders
+		m.state = viewListResults
+		return m, nil
 	}
-	m.state = viewMenuOrders
-	return m, nil
 }
 
 func (m AdminModel) updateCreateManualOrder(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -784,10 +1294,8 @@ func (m AdminModel) updateCreateManualOrder(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		m.inputBuffer = ""
 		m.step = 0
 		return m, nil
-	case tea.KeyBackspace:
-		if len(m.inputBuffer) > 0 {
-			m.inputBuffer = m.inputBuffer[:len(m.inputBuffer)-1]
-		}
+	case tea.KeyBackspace, tea.KeyDelete:
+		m.inputBuffer = deleteLastRune(m.inputBuffer)
 	case tea.KeyEnter:
 		val := strings.TrimSpace(m.inputBuffer)
 		m.inputBuffer = ""
@@ -855,17 +1363,40 @@ func (m AdminModel) submitCreateManualOrder() (tea.Model, tea.Cmd) {
 			Error string `json:"error"`
 		}
 		json.NewDecoder(resp.Body).Decode(&errResp)
-		m.status = fmt.Sprintf("❌ Erreur création commande: %s", errResp.Error)
+		m.resultsTitle = "❌ ÉCHEC DE LA COMMANDE"
+		m.status = "Refusée par le serveur"
+		m.items = []string{
+			fmt.Sprintf("Client ID   : %d", uid),
+			fmt.Sprintf("Produit ID  : %s", m.formProdID),
+			fmt.Sprintf("Quantité    : %d", qty),
+			"",
+			"Raison du refus :",
+			"  " + errResp.Error,
+		}
+		m.returnState = viewMenuOrders
+		m.state = viewListResults
+		return m, nil
 	} else {
 		var order struct {
 			ID       string  `json:"id"`
 			TotalTTC float64 `json:"total_ttc"`
 		}
 		json.NewDecoder(resp.Body).Decode(&order)
-		m.status = fmt.Sprintf("✅ Commande manuelle [%s] créée avec succès ! Total: %.2f€ TTC", order.ID, order.TotalTTC)
+		m.resultsTitle = "✅ COMMANDE CRÉÉE AVEC SUCCÈS"
+		m.status = fmt.Sprintf("ID: %s", order.ID)
+		m.items = []string{
+			fmt.Sprintf("Commande ID : %s", order.ID),
+			fmt.Sprintf("Client ID   : %d", uid),
+			fmt.Sprintf("Produit ID  : %s", m.formProdID),
+			fmt.Sprintf("Quantité    : %d", qty),
+			fmt.Sprintf("Total payé  : %.2f € TTC", order.TotalTTC),
+			"",
+			"Le stock a été décrémenté automatiquement en BDD.",
+		}
+		m.returnState = viewMenuOrders
+		m.state = viewListResults
+		return m, nil
 	}
-	m.state = viewMenuOrders
-	return m, nil
 }
 
 func (m *AdminModel) fetchProducts() {
@@ -964,6 +1495,10 @@ func (m AdminModel) View() string {
 	s.WriteString("       BACK-OFFICE ADMIN E-COMMERCE CLI     \n")
 	s.WriteString("===============================================\n\n")
 
+	if m.status != "" && m.state != viewListResults {
+		s.WriteString("Statut : " + m.status + "\n\n")
+	}
+
 	if m.state == viewListResults {
 		s.WriteString(fmt.Sprintf("📋 %s (%s) :\n\n", m.resultsTitle, m.status))
 		if len(m.items) == 0 {
@@ -995,6 +1530,35 @@ func (m AdminModel) View() string {
 			s.WriteString(fmt.Sprintf("✓ Catégorie : %s\n", m.formCategory))
 			s.WriteString(fmt.Sprintf("✓ Prix HT : %s €\n", m.formPriceHT))
 			s.WriteString("Étape 4/4 - Entrez la quantité en STOCK (ex: 20) :\n")
+		}
+		s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
+		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] pour annuler.\n")
+		return s.String()
+	}
+
+	if m.state == viewUpdateProduct {
+		s.WriteString("MODIFICATION D'UN PRODUIT :\n\n")
+		switch m.step {
+		case 0:
+			s.WriteString("Étape 1/5 - Entrez l'ID du produit à modifier (ex: PDT-SIL1BB) :\n")
+		case 1:
+			s.WriteString(fmt.Sprintf("✓ Produit ID : %s\n", m.formProdID))
+			s.WriteString(fmt.Sprintf("Étape 2/5 - Nom du produit [Actuel : %s] (Entrée pour conserver) :\n", m.formName))
+		case 2:
+			s.WriteString(fmt.Sprintf("✓ Produit ID : %s\n", m.formProdID))
+			s.WriteString(fmt.Sprintf("✓ Nom : %s\n", m.formName))
+			s.WriteString(fmt.Sprintf("Étape 3/5 - Catégorie [Actuelle : %s] (Entrée pour conserver) :\n", m.formCategory))
+		case 3:
+			s.WriteString(fmt.Sprintf("✓ Produit ID : %s\n", m.formProdID))
+			s.WriteString(fmt.Sprintf("✓ Nom : %s\n", m.formName))
+			s.WriteString(fmt.Sprintf("✓ Catégorie : %s\n", m.formCategory))
+			s.WriteString(fmt.Sprintf("Étape 4/5 - Prix HT en € [Actuel : %s €] (Entrée pour conserver) :\n", m.formPriceHT))
+		case 4:
+			s.WriteString(fmt.Sprintf("✓ Produit ID : %s\n", m.formProdID))
+			s.WriteString(fmt.Sprintf("✓ Nom : %s\n", m.formName))
+			s.WriteString(fmt.Sprintf("✓ Catégorie : %s\n", m.formCategory))
+			s.WriteString(fmt.Sprintf("✓ Prix HT : %s €\n", m.formPriceHT))
+			s.WriteString(fmt.Sprintf("Étape 5/5 - Quantité en stock [Actuel : %s] (Entrée pour conserver) :\n", m.formStock))
 		}
 		s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
 		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] pour annuler.\n")
@@ -1041,6 +1605,24 @@ func (m AdminModel) View() string {
 		return s.String()
 	}
 
+	if m.state == viewUpdateUser {
+		s.WriteString("MODIFICATION D'UN UTILISATEUR :\n\n")
+		switch m.step {
+		case 0:
+			s.WriteString("Étape 1/3 - Entrez l'ID numérique de l'utilisateur (ex: 2) :\n")
+		case 1:
+			s.WriteString(fmt.Sprintf("✓ Utilisateur ID : %s\n", m.formUserID))
+			s.WriteString(fmt.Sprintf("Étape 2/3 - Email de l'utilisateur [Actuel : %s] (Entrée pour conserver) :\n", m.formEmail))
+		case 2:
+			s.WriteString(fmt.Sprintf("✓ Utilisateur ID : %s\n", m.formUserID))
+			s.WriteString(fmt.Sprintf("✓ Email : %s\n", m.formEmail))
+			s.WriteString(fmt.Sprintf("Étape 3/3 - Rôle ('client' ou 'admin') [Actuel : %s] (Entrée pour conserver) :\n", m.formRole))
+		}
+		s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
+		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] pour annuler.\n")
+		return s.String()
+	}
+
 	if m.state == viewConfirmUser {
 		s.WriteString("CONFIRMATION MANUELLE D'UN UTILISATEUR :\n\n")
 		s.WriteString("Entrez l'ID numérique de l'utilisateur à valider (ex: 1) :\n")
@@ -1052,6 +1634,14 @@ func (m AdminModel) View() string {
 	if m.state == viewDeleteUser {
 		s.WriteString("SUPPRESSION D'UN UTILISATEUR :\n\n")
 		s.WriteString("Entrez l'ID numérique de l'utilisateur à supprimer (ex: 2) :\n")
+		s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
+		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] pour annuler.\n")
+		return s.String()
+	}
+
+	if m.state == viewOrderDetail {
+		s.WriteString("CONSULTATION D'UNE COMMANDE :\n\n")
+		s.WriteString("Entrez l'ID de la commande à consulter (ex: CMD-1F2S8B) :\n")
 		s.WriteString(fmt.Sprintf("\n> %s █\n\n", m.inputBuffer))
 		s.WriteString("Appuyez sur [Entrée] pour valider, ou [Échap] pour annuler.\n")
 		return s.String()
@@ -1110,31 +1700,33 @@ func (m AdminModel) View() string {
 		choices = []string{
 			"1. Lister les Produits",
 			"2. Ajouter un nouveau Produit",
-			"3. Supprimer un Produit",
-			"4. Renommer une Catégorie sur tous les produits",
-			"5. Retour au Menu Principal",
+			"3. Modifier un Produit",
+			"4. Supprimer un Produit",
+			"5. Renommer une Catégorie sur tous les produits",
+			"6. Retour au Menu Principal",
 		}
 	case viewMenuUsers:
 		menuTitle = "GESTION DES UTILISATEURS"
 		choices = []string{
 			"1. Lister les Utilisateurs",
 			"2. Créer un Utilisateur",
-			"3. Confirmer manuellement un compte",
-			"4. Supprimer un Utilisateur",
-			"5. Retour au Menu Principal",
+			"3. Modifier un Utilisateur (Email / Rôle)",
+			"4. Confirmer manuellement un compte",
+			"5. Supprimer un Utilisateur",
+			"6. Retour au Menu Principal",
 		}
 	case viewMenuOrders:
 		menuTitle = "GESTION DES COMMANDES"
 		choices = []string{
 			"1. Lister les Commandes",
-			"2. Modifier le statut d'une Commande (Statut / Motif)",
-			"3. Créer une Commande (Client + Produits)",
-			"4. Retour au Menu Principal",
+			"2. Consulter le détail d'une Commande (Articles)",
+			"3. Modifier le statut d'une Commande (Statut / Motif)",
+			"4. Créer une Commande (Client + Produits)",
+			"5. Retour au Menu Principal",
 		}
 	}
 
 	s.WriteString(menuTitle + " :\n\n")
-	s.WriteString("Statut : " + m.status + "\n\n")
 	s.WriteString("Naviguez avec les flèches [↑/↓] puis validez avec [Entrée] :\n\n")
 
 	for i, choice := range choices {
@@ -1148,4 +1740,12 @@ func (m AdminModel) View() string {
 	s.WriteString("\nAppuyez sur [Échap] ou 'x' pour revenir en arrière, 'q' pour quitter.\n")
 
 	return s.String()
+}
+
+func deleteLastRune(s string) string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return ""
+	}
+	return string(runes[:len(runes)-1])
 }

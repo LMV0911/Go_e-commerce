@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -56,7 +58,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 INSERT INTO users (email, password_hash, role, is_confirmed) 
-VALUES ('admin@ecommerce.com', '$2a$10$wN3Gvg0R5uR9tJ7L1G0N7.3x1M/vWqF8H.g/7S.cW.r.xJ2N7lS2K', 'admin', TRUE)
+VALUES ('admin@ecommerce.com', '$2a$10$8cilyaUFnv5NQHRaxYRJCu1pzc0TnSwsmtkA79Ft6RgeXKGu7Z4O.', 'admin', TRUE)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO products (id, name, description, category, price_ht, price_ttc, stock) VALUES

@@ -99,10 +99,13 @@ func (r *ProductRepository) Delete(id string) error {
 }
 
 func (r *ProductRepository) RenameCategory(oldCategory, newCategory string) (int64, error) {
-	query := `UPDATE products SET category = $1 WHERE category ILIKE $2`
+	query := `UPDATE products SET category = $1 WHERE category ILIKE $2 OR unaccent(category) ILIKE unaccent($2)`
 	res, err := r.db.Exec(query, newCategory, oldCategory)
 	if err != nil {
-		return 0, err
+		res, err = r.db.Exec(`UPDATE products SET category = $1 WHERE category ILIKE $2`, newCategory, oldCategory)
+		if err != nil {
+			return 0, err
+		}
 	}
 	return res.RowsAffected()
 }

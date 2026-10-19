@@ -12,8 +12,10 @@ import (
 
 func InitDB() (*sql.DB, error) {
 	host := os.Getenv("DB_HOST")
-	if host == "" {
-		host = "db"
+	if host == "" || host == "db" {
+		if os.Getenv("DB_HOST") == "" {
+			host = "localhost"
+		}
 	}
 	port := os.Getenv("DB_PORT")
 	if port == "" {
@@ -21,15 +23,15 @@ func InitDB() (*sql.DB, error) {
 	}
 	user := os.Getenv("DB_USER")
 	if user == "" {
-		return nil, fmt.Errorf("variable d'environnement DB_USER manquant")
+		user = "admin"
 	}
 	password := os.Getenv("DB_PASSWORD")
 	if password == "" {
-		return nil, fmt.Errorf("variable d'environnement DB_PASSWORD manquante")
+		password = "password"
 	}
 	dbname := os.Getenv("DB_NAME")
 	if dbname == "" {
-		return nil, fmt.Errorf("variable d'environnement DB_NAME manquante")
+		dbname = "ecommerce"
 	}
 
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",

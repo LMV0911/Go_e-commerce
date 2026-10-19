@@ -34,8 +34,65 @@ func (r *ProductRepository) Create(p *models.Product) error {
 }
 
 func (r *ProductRepository) List() ([]models.Product, error) {
-	query := `SELECT id, name, description, category, price_ht, price_ttc, stock, created_at FROM products ORDER BY created_at DESC`
-	rows, err := r.db.Query(query)
+	return r.Search("", "", "", "", "", nil, nil, "")
+}
+
+func (r *ProductRepository) Search(q, name, category, description, priceType string, minPrice, maxPrice *float64, sortBy string) ([]models.Product, error) {
+	query := `SELECT id, name, description, category, price_ht, price_ttc, stock, created_at FROM products WHERE 1=1`
+	var args []any
+	argID := 1
+
+	if q != "" {
+		query += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d OR category ILIKE $%d)", argID, argID, argID)
+		args = append(args, "%"+q+"%")
+		argID++
+	}
+	if name != "" {
+		query += fmt.Sprintf(" AND name ILIKE $%d", argID)
+		args = append(args, "%"+name+"%")
+		argID++
+	}
+	if category != "" && category != "Toutes" && category != "Tous" {
+		query += fmt.Sprintf(" AND category ILIKE $%d", argID)
+		args = append(args, category)
+		argID++
+	}
+	if description != "" {
+		query += fmt.Sprintf(" AND description ILIKE $%d", argID)
+		args = append(args, "%"+description+"%")
+		argID++
+	}
+
+	priceCol := "price_ttc"
+	if priceType == "ht" {
+		priceCol = "price_ht"
+	}
+
+	if minPrice != nil {
+		query += fmt.Sprintf(" AND %s >= $%d", priceCol, argID)
+		args = append(args, *minPrice)
+		argID++
+	}
+	if maxPrice != nil {
+		query += fmt.Sprintf(" AND %s <= $%d", priceCol, argID)
+		args = append(args, *maxPrice)
+		argID++
+	}
+
+	switch sortBy {
+	case "name_asc":
+		query += " ORDER BY name ASC"
+	case "name_desc":
+		query += " ORDER BY name DESC"
+	case "price_asc":
+		query += fmt.Sprintf(" ORDER BY %s ASC", priceCol)
+	case "price_desc":
+		query += fmt.Sprintf(" ORDER BY %s DESC", priceCol)
+	default:
+		query += " ORDER BY created_at DESC"
+	}
+
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("erreur de récupération des produits: %w", err)
 	}
@@ -53,6 +110,24 @@ func (r *ProductRepository) List() ([]models.Product, error) {
 		return nil, fmt.Errorf("erreur lors de l'itération des produits: %w", err)
 	}
 	return products, nil
+}
+
+func (r *ProductRepository) ListCategories() ([]string, error) {
+	query := `SELECT DISTINCT category FROM products ORDER BY category ASC`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("erreur récupération catégories: %w", err)
+	}
+	defer rows.Close()
+
+	var categories []string
+	for rows.Next() {
+		var cat string
+		if err := rows.Scan(&cat); err == nil {
+			categories = append(categories, cat)
+		}
+	}
+	return categories, nil
 }
 
 func (r *ProductRepository) GetByID(id string) (*models.Product, error) {

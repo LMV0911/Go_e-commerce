@@ -1206,10 +1206,11 @@ func (m AdminModel) updateOrderStatus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if val == "" {
 				val = "expédiée"
 			}
-			m.formStatus = val
-			if val == "annulé" || val == "annulée" {
+			if strings.HasPrefix(strings.ToLower(val), "annul") {
+				m.formStatus = "annulé"
 				m.step = 2
 			} else {
+				m.formStatus = val
 				return m.submitUpdateOrderStatus()
 			}
 		case 2:
@@ -1278,6 +1279,9 @@ func (m AdminModel) submitUpdateOrderStatus() (tea.Model, tea.Cmd) {
 		}
 		if m.formReason != "" {
 			m.items = append(m.items, fmt.Sprintf("Motif : %s", m.formReason))
+		}
+		if m.formStatus == "annulé" {
+			m.items = append(m.items, "📦 Stock automatiquement réintégré dans le catalogue.")
 		}
 		m.returnState = viewMenuOrders
 		m.state = viewListResults

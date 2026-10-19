@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/LMV0911/Go_e-commerce/internal/models"
 	"github.com/LMV0911/Go_e-commerce/internal/utils"
@@ -81,12 +82,67 @@ func (r *OrderRepository) GetByID(id string) (*models.Order, error) {
 }
 
 func (r *OrderRepository) UpdateStatus(id string, status string, cancelReason string) error {
-	if status == models.StatusCancelled && cancelReason == "" {
+	cleanStatus := strings.TrimSpace(status)
+	if strings.HasPrefix(strings.ToLower(cleanStatus), "annul") {
+		cleanStatus = models.StatusCancelled
+	}
+
+	if cleanStatus == models.StatusCancelled && strings.TrimSpace(cancelReason) == "" {
 		return fmt.Errorf("un motif d'annulation est obligatoire lorsque la commande est annulée")
 	}
 
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	err = tx.QueryRow(`SELECT status FROM orders WHERE id = $1`, id).Scan(&currentStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("commande %s non trouvée", id)
+		}
+		return err
+	}
+
+	if currentStatus == models.StatusCancelled && cleanStatus != models.StatusCancelled {
+		return fmt.Errorf("une commande déjà annulée ne peut plus changer de statut")
+	}
+
+	if cleanStatus == models.StatusCancelled && currentStatus != models.StatusCancelled {
+		rows, err := tx.Query(`SELECT product_id, quantity FROM order_items WHERE order_id = $1`, id)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		type itemRestock struct {
+			productID string
+			quantity  int
+		}
+		var items []itemRestock
+		for rows.Next() {
+			var it itemRestock
+			if err := rows.Scan(&it.productID, &it.quantity); err != nil {
+				return err
+			}
+			items = append(items, it)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		for _, it := range items {
+			_, err := tx.Exec(`UPDATE products SET stock = stock + $1 WHERE id = $2`, it.quantity, it.productID)
+			if err != nil {
+				return fmt.Errorf("erreur de réintégration du stock pour le produit %s: %w", it.productID, err)
+			}
+		}
+	}
+
 	query := `UPDATE orders SET status = $1, cancel_reason = $2 WHERE id = $3`
-	res, err := r.db.Exec(query, status, cancelReason, id)
+	res, err := tx.Exec(query, cleanStatus, cancelReason, id)
 	if err != nil {
 		return err
 	}
@@ -94,7 +150,8 @@ func (r *OrderRepository) UpdateStatus(id string, status string, cancelReason st
 	if rowsAffected == 0 {
 		return fmt.Errorf("commande %s non trouvée", id)
 	}
-	return nil
+
+	return tx.Commit()
 }
 
 func (r *OrderRepository) CreateManualOrder(req models.CreateManualOrderRequest) (*models.Order, error) {

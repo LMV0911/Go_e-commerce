@@ -37,9 +37,11 @@ func SetupRoutes(db *sql.DB) http.Handler {
 	mux.HandleFunc("POST /api/admin/products", adminHandler.CreateProduct)
 	mux.HandleFunc("PUT /api/admin/products/{id}", adminHandler.UpdateProduct)
 	mux.HandleFunc("DELETE /api/admin/products/{id}", adminHandler.DeleteProduct)
+	mux.HandleFunc("PUT /api/admin/categories/rename", adminHandler.RenameCategory)
 
 	mux.HandleFunc("GET /api/admin/users", adminHandler.ListUsers)
 	mux.HandleFunc("GET /api/admin/users/{id}", adminHandler.GetUser)
+	mux.HandleFunc("POST /api/admin/users", adminHandler.CreateUser)
 	mux.HandleFunc("POST /api/admin/users/{id}/confirm", adminHandler.ConfirmUser)
 	mux.HandleFunc("PUT /api/admin/users/{id}", adminHandler.UpdateUser)
 	mux.HandleFunc("DELETE /api/admin/users/{id}", adminHandler.DeleteUser)
